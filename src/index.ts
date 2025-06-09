@@ -9,9 +9,6 @@
 import { Env, ChatRequestBody } from "./types";
 
 export default {
-  /**
-   * Main request handler for the Worker
-   */
   async fetch(
     request: Request,
     env: Env,
@@ -19,57 +16,61 @@ export default {
   ): Promise<Response> {
     const url = new URL(request.url);
 
-    // Handle static assets (frontend)
+    // Serve static frontend
     if (url.pathname === "/" || !url.pathname.startsWith("/api/")) {
       return env.ASSETS.fetch(request);
     }
 
-    // API Routes
-    if (url.pathname === "/api/chat") {
-      // Handle POST requests for chat
-      if (request.method === "POST") {
-        return handleChatRequest(request, env);
-      }
-
-      // Method not allowed for other request types
-      return new Response("Method not allowed", { status: 405 });
+    // Handle chat API
+    if (url.pathname === "/api/chat" && request.method === "POST") {
+      return handleChatRequest(request, env);
     }
 
-    // Handle 404 for unmatched routes
+    // Fallback 404
     return new Response("Not found", { status: 404 });
   },
 } satisfies ExportedHandler<Env>;
 
-/**
- * Handles chat API requests using AutoRAG
- */
 async function handleChatRequest(
   request: Request,
   env: Env,
 ): Promise<Response> {
   try {
-    // Parse JSON request body
-    const { query } = await request.json() as ChatRequestBody;
+    console.log("🔹 Received /api/chat request");
 
-    if (!query) {
-      return new Response(
-        JSON.stringify({ error: "Query is required" }),
-        {
-          status: 400,
-          headers: { "content-type": "application/json" },
-        },
-      );
+    const body = await request.json() as ChatRequestBody;
+    console.log("🔹 Parsed request body:", JSON.stringify(body));
+
+    const lastMessage = body.messages?.at(-1)?.content;
+
+    if (!lastMessage || typeof lastMessage !== "string") {
+      console.warn("⚠️ Missing or invalid last message");
+      return new Response(JSON.stringify({ error: "Query is required" }), {
+        status: 400,
+        headers: { "content-type": "application/json" },
+      });
     }
 
+    console.log("🔹 Querying AutoRAG with:", lastMessage);
+
     const result = await env.AI.autorag("jaise").aiSearch({
-      query,
+      query: lastMessage,
     });
 
-    return Response.json({ answer: result });
+    console.log("✅ AutoRAG result:", result);
+
+    // Send as SSE (required by streaming chat UI)
+    return new Response(`data: ${JSON.stringify({ response: result })}\n\n`, {
+      headers: {
+        "Content-Type": "text/event-stream",
+        "Cache-Control": "no-cache",
+        Connection: "keep-alive",
+      },
+    });
   } catch (error) {
-    console.error("Error processing chat request:", error);
+    console.error("❌ Error in /api/chat:", error);
     return new Response(
-      JSON.stringify({ error: "Failed to process request" }),
+      JSON.stringify({ error: "Internal server error" }),
       {
         status: 500,
         headers: { "content-type": "application/json" },
