@@ -1,11 +1,3 @@
-/**
- * AutoRAG Implementation using Cloudflare Workers
- *
- * A simple RAG application using Cloudflare Workers.
- * This implementation uses AutoRAG for question answering.
- *
- * @license MIT
- */
 import { Env, ChatRequestBody } from "./types";
 
 export default {
@@ -15,18 +7,18 @@ export default {
     ctx: ExecutionContext,
   ): Promise<Response> {
     const url = new URL(request.url);
+    console.log(`📥 Incoming request: ${request.method} ${url.pathname}`);
 
-    // Serve static frontend
     if (url.pathname === "/" || !url.pathname.startsWith("/api/")) {
+      console.log("➡️ Serving static asset");
       return env.ASSETS.fetch(request);
     }
 
-    // Handle chat API
     if (url.pathname === "/api/chat" && request.method === "POST") {
       return handleChatRequest(request, env);
     }
 
-    // Fallback 404
+    console.log("❌ Route not found");
     return new Response("Not found", { status: 404 });
   },
 } satisfies ExportedHandler<Env>;
@@ -38,8 +30,8 @@ async function handleChatRequest(
   try {
     console.log("🔹 Received /api/chat request");
 
-    const body = await request.json() as ChatRequestBody;
-    console.log("🔹 Parsed request body:", JSON.stringify(body));
+    const body = await request.json();
+    console.log("🧾 Parsed request body:", JSON.stringify(body));
 
     const lastMessage = body.messages?.at(-1)?.content;
 
@@ -51,16 +43,16 @@ async function handleChatRequest(
       });
     }
 
-    console.log("🔹 Querying AutoRAG with:", lastMessage);
+    console.log("🤖 Sending query to AutoRAG:", lastMessage);
 
     const result = await env.AI.autorag("jaise").aiSearch({
       query: lastMessage,
     });
 
-    console.log("✅ AutoRAG result:", result);
+    console.log("✅ AutoRAG responded:", result);
 
-    // Send as SSE (required by streaming chat UI)
-    return new Response(`data: ${JSON.stringify({ response: result })}\n\n`, {
+    // Only return the actual response string so frontend renders it
+    return new Response(`data: ${JSON.stringify({ response: result.response })}\n\n`, {
       headers: {
         "Content-Type": "text/event-stream",
         "Cache-Control": "no-cache",
